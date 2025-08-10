@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dragonball Mini Game</title>
+<style>
+  body, html {
+    margin: 0; padding: 0; overflow: hidden;
+    background: #202020;
+  }
+  canvas {
+    display: block;
+    background: linear-gradient(#4a9, #070);
+  }
+  #info {
+    position: fixed; top: 10px; left: 10px;
+    color: white; font-family: monospace;
+  }
+</style>
+</head>
+<body>
+<div id="info">Move: Arrow keys | Shoot: Spacebar</div>
+<canvas id="game"></canvas>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  canvas.width = W;
+  canvas.height = H;
+
+  // Player setup
+  const player = {
+    x: W / 4, y: H / 2, w: 40, h: 60,
+    speed: 5,
+    color: '#0f0',
+    health: 100,
+    alive: true
+  };
+
+  // Enemy setup
+  const enemy = {
+    x: (W / 4) * 3, y: H / 2, w: 40, h: 60,
+    speed: 2,
+    color: '#f00',
+    health: 100,
+    alive: true,
+    direction: 1,
+    shootCooldown: 0
+  };
+
+  // Controls state
+  const keys = {};
+  window.addEventListener('keydown', e => keys[e.code] = true);
+  window.addEventListener('keyup', e => keys[e.code] = false);
+
+  // Energy blasts arrays
+  const playerBlasts = [];
+  const enemyBlasts = [];
+
+  // Blast properties
+  class Blast {
+    constructor(x, y, vx, vy, color) {
+      this.x = x;
+      this.y = y;
+      this.vx = vx;
+      this.vy = vy;
+      this.radius = 8;
+      this.color = color;
+      this.active = true;
+    }
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+      // deactivate if offscreen
+      if (this.x < 0 || this.x > W || this.y < 0 || this.y > H) this.active = false;
+    }
+    draw() {
+      ctx.beginPath();
+      ctx.fillStyle = this.color;
+      ctx.shadowColor = this.color;
+      ctx.shadowBlur = 10;
+      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  // Draw health bar
+  function drawHealthBar(x, y, w, h, pct, color) {
+    ctx.fillStyle = '#555';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w * (pct / 100), h);
+    ctx.strokeStyle = '#000';
+    ctx.strokeRect(x, y, w, h);
+  }
+
+  // Game loop
+  function gameLoop() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Draw arena (simple grid)
+    ctx.strokeStyle = '#060';
+    ctx.lineWidth = 1;
+    for(let gx = 0; gx < W; gx += 50) {
+      ctx.beginPath();
+      ctx.moveTo(gx, 0);
+      ctx.lineTo(gx, H);
+      ctx.stroke();
+    }
+    for(let gy = 0; gy < H; gy += 50) {
+      ctx.beginPath();
+      ctx.moveTo(0, gy);
+      ctx.lineTo(W, gy);
+      ctx.stroke();
+    }
+
+    // Player movement
+    if(player.alive) {
+      if(keys['ArrowUp'] && player.y - player.speed > 0) player.y -= player.speed;
+      if(keys['ArrowDown'] && player.y + player.h + player.speed < H) player.y += player.speed;
+      if(keys['ArrowLeft'] && player.x - player.speed > 0) player.x -= player.speed;
+      if(keys['ArrowRight'] && player.x + player.w + player.speed < W) player.x += player.speed;
+    }
+
+    // Player shoot
+    if(keys['Space'] && player.alive && (!player.lastShot || Date.now() - player.lastShot > 400)) {
+      playerBlasts.push(new Blast(player.x + player.w, player.y + player.h / 2, 10, 0, '#0f0'));
+      player.lastShot = Date.now();
+    }
+
+    // Enemy AI: move up/down, shoot
+    if(enemy.alive) {
+      enemy.y += enemy.speed * enemy.direction;
+      if(enemy.y < 0 || enemy.y + enemy.h > H) enemy.direction *= -1;
+
+      // Enemy shoots less often
+      if(enemy.shootCooldown <= 0) {
+        enemyBlasts.push(new Blast(enemy.x, enemy.y + enemy.h / 2, -8, 0, '#f00'));
+        enemy.shootCooldown = 100;
+      } else {
+        enemy.shootCooldown--;
+      }
+    }
+
+    // Update and draw blasts
+    for(let blast of playerBlasts) {
+      blast.update();
+      blast.draw();
+      // Check collision with enemy
+      if(enemy.alive && blast.active &&
+         blast.x + blast.radius > enemy.x &&
+         blast.x - blast.radius < enemy.x + enemy.w &&
+         blast.y + blast.radius > enemy.y &&
+         blast.y - blast.radius < enemy.y + enemy.h) {
+        enemy.health -= 10;
+        blast.active = false;
+        if(enemy.health <= 0) enemy.alive = false;
+      }
+    }
+    // Remove inactive player blasts
+    for(let i = playerBlasts.length - 1; i >= 0; i--) {
+      if(!playerBlasts[i].active) playerBlasts.splice(i, 1);
+    }
+
+    for(let blast of enemyBlasts) {
+      blast.update();
+      blast.draw();
+      // Check collision with player
+      if(player.alive && blast.active &&
+         blast.x + blast.radius > player.x &&
+         blast.x - blast.radius < player.x + player.w &&
+         blast.y + blast.radius > player.y &&
+         blast.y - blast.radius < player.y + player.h) {
+        player.health -= 10;
+        blast.active = false;
+        if(player.health <= 0) player.alive = false;
+      }
+    }
+    // Remove inactive enemy blasts
+    for(let i = enemyBlasts.length - 1; i >= 0; i--) {
+      if(!enemyBlasts[i].active) enemyBlasts.splice(i, 1);
+    }
+
+    // Draw player and enemy
+    if(player.alive) {
+      ctx.fillStyle = player.color;
+      ctx.fillRect(player.x, player.y, player.w, player.h);
+    } else {
+      ctx.fillStyle = '#080';
+      ctx.font = '40px monospace';
+      ctx.fillText('You Died', W / 2 - 80, H / 2);
+    }
+
+    if(enemy.alive) {
+      ctx.fillStyle = enemy.color;
+      ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+    } else {
+      ctx.fillStyle = '#800';
+      ctx.font = '40px monospace';
+      ctx.fillText('Enemy Defeated!', W / 2 - 140, H / 2);
+    }
+
+    // Draw health bars
+    drawHealthBar(20, 20, 200, 20, player.health, '#0f0');
+    drawHealthBar(W - 220, 20, 200, 20, enemy.health, '#f00');
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  gameLoop();
+})();
+</script>
+</body>
+</html>
