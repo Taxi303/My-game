@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Legend Clash — Demo</title>
+<style>
+  html,body { height:100%; margin:0; font-family:system-ui,Segoe UI,Roboto,Arial; background:#0b1020; color:#eee; }
+  #game { display:flex; gap:12px; padding:12px; box-sizing:border-box; height:100vh; align-items:stretch; }
+  canvas { background: linear-gradient(#071029,#0b1224); border-radius:8px; display:block; width:100%; height:100%; }
+  .ui { width:380px; max-width:38vw; display:flex; flex-direction:column; gap:12px; }
+  .panel { background:rgba(255,255,255,0.03); border-radius:10px; padding:10px; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .bars { flex:1; }
+  .hpbar, .energbar { height:12px; background:rgba(255,255,255,0.08); border-radius:6px; overflow:hidden; }
+  .hpfill{ height:100%; background:linear-gradient(90deg,#ff6b6b,#ff3d3d); width:100%; }
+  .enfill{ height:100%; background:linear-gradient(90deg,#ffd66b,#ffb84d); width:0%; }
+  .cards { display:flex; gap:8px; margin-top:8px; }
+  .card { flex:1; padding:8px; background:rgba(255,255,255,0.03); border-radius:8px; text-align:center; cursor:pointer; user-select:none; }
+  .card.cool { opacity:0.4; }
+  .tagBtn { margin-top:8px; padding:10px; border-radius:8px; cursor:pointer; text-align:center; background:linear-gradient(90deg,#6b7cff,#4b56ff); }
+  .small { font-size:12px; color:#b9c2ff; }
+  .log { height:120px; overflow:auto; background:rgba(0,0,0,0.15); padding:8px; border-radius:6px; font-size:13px; }
+  .footer { margin-top:auto; font-size:12px; color:#9aa; text-align:center; }
+  @media (max-width:900px){
+    #game{ flex-direction:column-reverse; }
+    .ui{ width:100%; max-width:none; height:340px; }
+  }
+</style>
+</head>
+<body>
+<div id="game">
+  <div style="flex:1; position:relative;">
+    <canvas id="c"></canvas>
+  </div>
+
+  <div class="ui">
+    <div class="panel">
+      <div class="row">
+        <div style="width:72px;">
+          <div style="height:64px;width:64px;border-radius:8px;background:linear-gradient(135deg,#4fc3f7,#0288d1);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;">
+            P
+          </div>
+        </div>
+        <div class="bars">
+          <div style="display:flex;justify-content:space-between;font-weight:600">
+            <div>Player</div><div id="playerHPText">HP: 100%</div>
+          </div>
+          <div class="hpbar" style="margin-top:6px"><div id="playerHP" class="hpfill"></div></div>
+          <div style="margin-top:8px;display:flex;justify-content:space-between;"><div class="small">Energy</div><div id="playerEnergyText" class="small">0</div></div>
+          <div class="energbar" style="margin-top:6px"><div id="playerEnergy" class="enfill"></div></div>
+        </div>
+      </div>
+
+      <div class="cards" id="cards">
+        <!-- cards inserted by JS -->
+      </div>
+
+      <div class="row" style="margin-top:8px;">
+        <div class="tagBtn" id="tagBtn">Tag (Space)</div>
+        <div style="flex:1"></div>
+        <div style="min-width:120px;text-align:right;font-size:13px;color:#cdd">Active: <span id="activeName">Aster</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><div class="small">Enemy</div><div id="enemyHPText" class="small">HP: 100%</div></div>
+      <div class="hpbar"><div id="enemyHP" class="hpfill" style="background:linear-gradient(90deg,#7eff7a,#38d83a);width:100%"></div></div>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div class="panel">
+      <div class="small">Team status</div>
+      <div id="teamStatus" style="display:flex;gap:8px;margin-top:8px"></div>
+    </div>
+
+    <div class="footer panel">
+      Tip: Use 1/2/3 keys or click cards. Tag to rotate active fighter. This is a compact demo of core mechanics.
+    </div>
+  </div>
+</div>
+
+<script>
+/* Legend Clash — browser demo
+   Simplified tag-battle mechanics: 3 per team, card skills, energy, cooldowns, AI opponent.
+   Single-file, no external assets.
+*/
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+function resize(){ canvas.width = canvas.clientWidth * devicePixelRatio; canvas.height = canvas.clientHeight * devicePixelRatio; ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); }
+window.addEventListener('resize', resize);
+resize();
+
+// Utility
+function rand(a,b){ return a + Math.random()*(b-a); }
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function now(){ return performance.now(); }
+
+const logEl = document.getElementById('log');
+function log(s){ const p = document.createElement('div'); p.textContent = s; logEl.prepend(p); }
+
+// Game state
+const ARENA = { w: canvas.width / devicePixelRatio, h: canvas.height / devicePixelRatio };
+let lastTime = now();
+let running = true;
+
+// simple character templates (original)
+const templates = [
+  {name:'Aster', color:'#4fc3f7', maxHP:100, speed:160, energyRegen:6,
+    skills:[
+      {name:'Light Blast', cost:15, dmg:12, cooldown:1200, type:'proj'},
+      {name:'Dash Strike', cost:10, dmg:8, cooldown:800, type:'melee'},
+      {name:'Burst', cost:30, dmg:28, cooldown:5000, type:'aoe'}
+    ]},
+  {name:'Brim', color:'#ffd66b', maxHP:110, speed:140, energyRegen:5,
+    skills:[
+      {name:'Quick Jab', cost:10, dmg:10, cooldown:700, type:'melee'},
+      {name:'Energy Shot', cost:18, dmg:15, cooldown:1300, type:'proj'},
+      {name:'Guard Break', cost:28, dmg:26, cooldown:4800, type:'aoe'}
+    ]},
+  {name:'Cyra', color:'#c39bff', maxHP:90, speed:170, energyRegen:7,
+    skills:[
+      {name:'Slice', cost:12, dmg:11, cooldown:900, type:'melee'},
+      {name:'Swift Orb', cost:16, dmg:14, cooldown:1100, type:'proj'},
+      {name:'Phantom Rush', cost:34, dmg:30, cooldown:6000, type:'aoe'}
+    ]}
+];
+
+// create teams
+function createFighter(template, x,y, team){
+  return {
+    name: template.name,
+    color: template.color,
+    maxHP: template.maxHP,
+    hp: template.maxHP,
+    speed: template.speed,
+    energy: 0,
+    energyRegen: template.energyRegen,
+    skills: template.skills.map(s=>Object.assign({},s,{lastUsed:-99999})),
+    x, y, vx:0, vy:0, team, alive:true, defending:false
+  };
+}
+
+const playerTeam = [
+  createFighter(templates[0], 160, ARENA.h - 180, 'player'),
+  createFighter(templates[1], 120, ARENA.h - 180, 'player'),
+  createFighter(templates[2], 80, ARENA.h - 180, 'player')
+];
+const enemyTeam = [
+  createFighter(templates[2], ARENA.w - 160, 180, 'enemy'),
+  createFighter(templates[1], ARENA.w - 120, 180, 'enemy'),
+  createFighter(templates[0], ARENA.w - 80, 180, 'enemy')
+];
+
+let activeIndex = 0;
+let enemyActiveIndex = 0;
+let projectiles = [];
+
+// UI elements
+const cardsEl = document.getElementById('cards');
+const playerHP = document.getElementById('playerHP');
+const playerEnergy = document.getElementById('playerEnergy');
+const playerHPText = document.getElementById('playerHPText');
+const playerEnergyText = document.getElementById('playerEnergyText');
+const enemyHP = document.getElementById('enemyHP');
+const enemyHPText = document.getElementById('enemyHPText');
+const activeName = document.getElementById('activeName');
+const tagBtn = document.getElementById('tagBtn');
+const teamStatus = document.getElementById('teamStatus');
+
+function updateUI(){
+  const p = playerTeam[activeIndex];
+  playerHP.style.width = (p.hp / p.maxHP * 100) + '%';
+  playerHPText.textContent = `HP: ${Math.round(p.hp)}/${p.maxHP}`;
+  playerEnergy.style.width = clamp(p.energy,0,100) + '%';
+  playerEnergyText.textContent = Math.round(p.energy);
+  activeName.textContent = p.name;
+
+  const e = enemyTeam[enemyActiveIndex];
+  enemyHP.style.width = (e.hp / e.maxHP * 100) + '%';
+  enemyHPText.textContent = `HP: ${Math.round(e.hp)}/${e.maxHP}`;
+
+  // cards
+  cardsEl.innerHTML = '';
+  p.skills.forEach((skill,i)=>{
+    const div = document.createElement('div');
+    div.className = 'card';
+    const cdLeft = Math.max(0, skill.cooldown - (now()-skill.lastUsed));
+    if(cdLeft>0) div.classList.add('cool');
+    div.innerHTML = `<div style="font-weight:700">${i+1}. ${skill.name}</div>
+      <div class="small">${skill.type.toUpperCase()} · DMG ${skill.dmg} · Cost ${skill.cost}</div>
+      <div class="small">${cdLeft>0?('CD: '+Math.ceil(cdLeft/1000)+'s'):'Ready'}</div>`;
+    div.onclick = ()=> useSkill('player', i);
+    cardsEl.appendChild(div);
+  });
+
+  // team status
+  teamStatus.innerHTML = '';
+  playerTeam.forEach((t, i)=>{
+    const el = document.createElement('div');
+    el.style.cssText = 'width:64px;padding:6px;border-radius:6px;background:rgba(255,255,255,0.02);text-align:center;font-size:12px';
+    el.innerHTML = `<div style="height:28px;width:28px;margin:0 auto;border-radius:6px;background:${t.color};font-weight:700;display:flex;align-items:center;justify-content:center">${t.name[0]}</div>
+      <div style="margin-top:6px">${Math.round(t.hp)}/${t.maxHP}</div>
+      <div style="font-size:11px;color:#9aa">E:${Math.round(t.energy)}</div>`;
+    if(i===activeIndex) el.style.outline = '2px solid rgba(120,180,255,0.25)';
+    teamStatus.appendChild(el);
+  });
+}
+updateUI();
+
+// Skills logic
+function useSkill(who, skillIdx){
+  if(who!=='player') return;
+  const p = playerTeam[activeIndex];
+  const skill = p.skills[skillIdx];
+  const cdLeft = Math.max(0, skill.cooldown - (now()-skill.lastUsed));
+  if(cdLeft>0){ log(`${p.name} tried ${skill.name} — on cooldown.`); return; }
+  if(p.energy < skill.cost){ log(`${p.name} lacks energy for ${skill.name}.`); return; }
+  // perform
+  p.energy -= skill.cost;
+  skill.lastUsed = now();
+  performSkill(p, enemyTeam[enemyActiveIndex], skill);
+}
+
+function performSkill(user, target, skill){
+  log(`${user.name} uses ${skill.name}!`);
+  if(skill.type==='proj'){
+    // spawn projectile
+    const dir = user.team==='player' ? 1 : -1;
+    projectiles.push({x:user.x, y:user.y-10, vx:dir*420, vy:0, dmg:skill.dmg, owner:user.team, life:2000});
+  } else if(skill.type==='melee'){
+    // instant short range damage if in range, else dash
+    const dist = Math.hypot(user.x - target.x, user.y - target.y);
+    if(dist < 120){
+      applyDamage(target, skill.dmg);
+    } else {
+      // dash toward
+      user.vx += (target.x - user.x) * 0.008;
+    }
+  } else if(skill.type==='aoe'){
+    // immediate area damage centered on target
+    applyDamage(target, skill.dmg);
+    // also slight splash to nearby teammates
+    enemyTeam.forEach(t=>{ if(t!==target && Math.hypot(t.x-target.x,t.y-target.y)<100) applyDamage(t, Math.round(skill.dmg*0.5)); });
+  }
+}
+
+// apply damage with simple block mechanic
+function applyDamage(target, amount){
+  if(target.defending){ amount *= 0.4; }
+  target.hp -= amount;
+  if(target.hp<=0){ target.hp = 0; target.alive = false; log(`${target.name} is knocked out!`); }
+}
+
+// tag mechanic
+function tagPlayer(){
+  activeIndex = (activeIndex + 1) % playerTeam.length;
+  if(!playerTeam[activeIndex].alive){
+    // skip knocked out
+    let start = activeIndex, tries=0;
+    while(!playerTeam[activeIndex].alive && tries<5){ activeIndex = (activeIndex+1)%playerTeam.length; tries++; }
+  }
+  const p = playerTeam[activeIndex];
+  playerTeam.forEach(t=>{ t.defending = false; });
+  p.defending = false;
+  log(`Player tags in ${p.name}`);
+}
+tagBtn.onclick = tagPlayer;
+window.addEventListener('keydown', e=>{
+  if(e.key === ' ') { e.preventDefault(); tagPlayer(); }
+  if(e.key === '1') useSkill('player',0);
+  if(e.key === '2') useSkill('player',1);
+  if(e.key === '3') useSkill('player',2);
+});
+
+// simple AI behaviour
+let aiLastDecision = now();
+function aiUpdate(dt){
+  const a = enemyTeam[enemyActiveIndex];
+  const player = playerTeam[activeIndex];
+  if(!a.alive){
+    // find next alive
+    let found = enemyTeam.findIndex(x=>x.alive);
+    if(found>=0) enemyActiveIndex = found;
+    return;
+  }
+  // regen energy
+  a.energy = clamp(a.energy + a.energyRegen * dt / 1000, 0, 100);
+  // make decisions occasionally
+  if(now() - aiLastDecision > 600){
+    aiLastDecision = now();
+    // if low hp: 30% chance to tag/defend
+    if(a.hp < a.maxHP * 0.45 && Math.random() < 0.35){
+      // tag
+      enemyActiveIndex = (enemyActiveIndex + 1) % enemyTeam.length;
+      let tries=0;
+      while(!enemyTeam[enemyActiveIndex].alive && tries<6){ enemyActiveIndex = (enemyActiveIndex+1)%enemyTeam.length; tries++; }
+      log(`Enemy tags to ${enemyTeam[enemyActiveIndex].name}`);
+      return;
+    }
+    // pick a skill that is ready and affordable
+    const ready = a.skills.map((s,i)=>({s,i,cd:Math.max(0,s.cooldown - (now()-s.lastUsed))}))
+                     .filter(o=>o.cd<=0 && o.s.cost <= a.energy);
+    if(ready.length>0){
+      const pick = ready[Math.floor(Math.random()*ready.length)];
+      a.energy -= pick.s.cost;
+      a.skills[pick.i].lastUsed = now();
+      performSkill(a, player, pick.s);
+      return;
+    }
+    // sometimes basic melee dash
+    if(Math.random()<0.5){
+      // move a bit toward player
+      a.vx += (player.x - a.x) * 0.006;
+    }
+  }
+}
+
+// physics & projectiles
+function update(dt){
+  // regen energy for player active + enemy active (others regen slower)
+  playerTeam.forEach((t, i) => {
+    const rate = (i===activeIndex) ? t.energyRegen : t.energyRegen*0.6;
+    t.energy = clamp(t.energy + rate * dt / 1000, 0, 100);
+  });
+
+  // enemy AI
+  aiUpdate(dt);
+
+  // simple movement smoothing
+  const teams = [playerTeam, enemyTeam];
+  teams.flat().forEach(t=>{
+    t.x += t.vx*dt/1000;
+    t.y += t.vy*dt/1000;
+    // friction
+    t.vx *= 0.88;
+    t.vy *= 0.88;
+    // clamp to arena
+    t.x = clamp(t.x, 40, ARENA.w-40);
+    t.y = clamp(t.y, 60, ARENA.h-60);
+  });
+
+  // projectiles
+  for(let i=projectiles.length-1;i>=0;i--){
+    const pr = projectiles[i];
+    pr.x += pr.vx * dt/1000;
+    pr.y += pr.vy * dt/1000;
+    pr.life -= dt;
+    // check collisions with opposite team
+    const targets = pr.owner==='player' ? enemyTeam : playerTeam;
+    for(const t of targets){
+      if(!t.alive) continue;
+      const d = Math.hypot(pr.x - t.x, pr.y - t.y);
+      if(d < 28){
+        applyDamage(t, pr.dmg);
+        projectiles.splice(i,1); break;
+      }
+    }
+    if(pr.life<=0) projectiles.splice(i,1);
+  }
+
+  // update UI text
+  updateUI();
+}
+
+// rendering
+function render(){
+  ctx.clearRect(0,0,ARENA.w,ARENA.h);
+
+  // arena background simple grid
+  ctx.fillStyle = '#051226';
+  ctx.fillRect(0,0,ARENA.w,ARENA.h);
+  ctx.save();
+  ctx.globalAlpha = 0.08;
+  for(let x=0;x<ARENA.w;x+=40){ ctx.fillRect(x,0,1,ARENA.h); }
+  for(let y=0;y<ARENA.h;y+=40){ ctx.fillRect(0,y,ARENA.w,1); }
+  ctx.restore();
+
+  // draw fighters
+  const drawFighter = (f, scale=1) => {
+    if(!f.alive){ ctx.globalAlpha = 0.35; }
+    ctx.save();
+    const W = 48*scale, H = 48*scale;
+    ctx.translate(f.x, f.y);
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.ellipse(0, H/2+6, W*0.6, 8, 0,0,Math.PI*2); ctx.fill();
+    // body
+    ctx.fillStyle = f.color;
+    ctx.fillRect(-W/2, -H, W, H);
+    // outline if active
+    if((f.team==='player' && playerTeam[activeIndex]===f) || (f.team==='enemy' && enemyTeam[enemyActiveIndex]===f)){
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 3; ctx.strokeRect(-W/2, -H, W, H);
+    }
+    // name
+    ctx.fillStyle = '#fff'; ctx.font = '12px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText(f.name, 0, -H-8);
+    // health bar
+    const hpRatio = f.hp / f.maxHP;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-W/2, -H-14, W, 6);
+    ctx.fillStyle = f.team==='player' ? '#ff6b6b' : '#7eff7a';
+    ctx.fillRect(-W/2, -H-14, W*hpRatio, 6);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  };
+
+  // draw enemy team (top)
+  enemyTeam.forEach((f,i)=> drawFighter(f, 1));
+  // draw projectiles
+  projectiles.forEach(p=>{
+    ctx.save();
+    ctx.translate(p.x,p.y);
+    ctx.fillStyle = p.owner==='player'?'#ffd66b':'#ff6b6b';
+    ctx.beginPath(); ctx.arc(0,0,8,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+  // draw player team (bottom)
+  playerTeam.forEach((f,i)=> drawFighter(f, 1));
+}
+
+// main loop
+function loop(){
+  if(!running) return;
+  const t = now();
+  const dt = Math.min(40, t - lastTime);
+  lastTime = t;
+  update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// Resize handler - adjust arena dims used for initial positions
+(function adjustOnResize(){
+  const rect = canvas.getBoundingClientRect();
+  ARENA.w = rect.width;
+  ARENA.h = rect.height;
+  // reposition teams if needed
+  playerTeam.forEach((p,i)=>{ p.x = 120 - i*40; p.y = ARENA.h - 120; });
+  enemyTeam.forEach((p,i)=>{ p.x = ARENA.w - 120 + i*40; p.y = 120; });
+  resize();
+})();
+
+// Simple start log
+log('Match start — Player vs AI');
