@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Legend Clash — Demo</title>
+<style>
+  html,body { height:100%; margin:0; font-family:system-ui,Segoe UI,Roboto,Arial; background:#0b1020; color:#eee; }
+  #game { display:flex; gap:12px; padding:12px; box-sizing:border-box; height:100vh; align-items:stretch; }
+  canvas { background: linear-gradient(#071029,#0b1224); border-radius:8px; display:block; width:100%; height:100%; }
+  .ui { width:380px; max-width:38vw; display:flex; flex-direction:column; gap:12px; }
+  .panel { background:rgba(255,255,255,0.03); border-radius:10px; padding:10px; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .bars { flex:1; }
+  .hpbar, .energbar { height:12px; background:rgba(255,255,255,0.08); border-radius:6px; overflow:hidden; }
+  .hpfill{ height:100%; background:linear-gradient(90deg,#ff6b6b,#ff3d3d); width:100%; }
+  .enfill{ height:100%; background:linear-gradient(90deg,#ffd66b,#ffb84d); width:0%; }
+  .cards { display:flex; gap:8px; margin-top:8px; }
+  .card { flex:1; padding:8px; background:rgba(255,255,255,0.03); border-radius:8px; text-align:center; cursor:pointer; user-select:none; }
+  .card.cool { opacity:0.4; }
+  .tagBtn { margin-top:8px; padding:10px; border-radius:8px; cursor:pointer; text-align:center; background:linear-gradient(90deg,#6b7cff,#4b56ff); }
+  .small { font-size:12px; color:#b9c2ff; }
+  .log { height:120px; overflow:auto; background:rgba(0,0,0,0.15); padding:8px; border-radius:6px; font-size:13px; }
+  .footer { margin-top:auto; font-size:12px; color:#9aa; text-align:center; }
+  @media (max-width:900px){
+    #game{ flex-direction:column-reverse; }
+    .ui{ width:100%; max-width:none; height:340px; }
+  }
+</style>
+</head>
+<body>
+<div id="game">
+  <div style="flex:1; position:relative;">
+    <canvas id="c"></canvas>
+  </div>
+
+  <div class="ui">
+    <div class="panel">
+      <div class="row">
+        <div style="width:72px;">
+          <div style="height:64px;width:64px;border-radius:8px;background:linear-gradient(135deg,#4fc3f7,#0288d1);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;">
+            P
+          </div>
+        </div>
+        <div class="bars">
+          <div style="display:flex;justify-content:space-between;font-weight:600">
+            <div>Player</div><div id="playerHPText">HP: 100%</div>
+          </div>
+          <div class="hpbar" style="margin-top:6px"><div id="playerHP" class="hpfill"></div></div>
+          <div style="margin-top:8px;display:flex;justify-content:space-between;"><div class="small">Energy</div><div id="playerEnergyText" class="small">0</div></div>
+          <div class="energbar" style="margin-top:6px"><div id="playerEnergy" class="enfill"></div></div>
+        </div>
+      </div>
+
+      <div class="cards" id="cards">
+        <!-- cards inserted by JS -->
+      </div>
+
+      <div class="row" style="margin-top:8px;">
+        <div class="tagBtn" id="tagBtn">Tag (Space)</div>
+        <div style="flex:1"></div>
+        <div style="min-width:120px;text-align:right;font-size:13px;color:#cdd">Active: <span id="activeName">Aster</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><div class="small">Enemy</div><div id="enemyHPText" class="small">HP: 100%</div></div>
+      <div class="hpbar"><div id="enemyHP" class="hpfill" style="background:linear-gradient(90deg,#7eff7a,#38d83a);width:100%"></div></div>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div class="panel">
+      <div class="small">Team status</div>
+      <div id="teamStatus" style="display:flex;gap:8px;margin-top:8px"></div>
+    </div>
+
+    <div class="footer panel">
+      Tip: Use 1/2/3 keys or click cards. Tag to rotate active fighter. This is a compact demo of core mechanics.
+    </div>
+  </div>
+</div>
+
+<script>
+// (JavaScript game logic here — omitted in this shortened version to save space in Python)
+</script>
+</body>
+</html>
